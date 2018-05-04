@@ -7,6 +7,8 @@
  */
 
 namespace Test;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\EventDispatcher\GenericEvent;
 
 /**
  * Class AllConfigTest
@@ -20,7 +22,12 @@ class AllConfigTest extends \Test\TestCase {
 	/** @var  \OCP\IDBConnection */
 	protected $connection;
 
+	protected $eventDispatcher;
+
 	protected function getConfig($systemConfig = null, $connection = null) {
+
+		$this->eventDispatcher = new  EventDispatcher();
+
 		if($this->connection === null) {
 			$this->connection = \OC::$server->getDatabaseConnection();
 		}
@@ -32,7 +39,7 @@ class AllConfigTest extends \Test\TestCase {
 				->disableOriginalConstructor()
 				->getMock();
 		}
-		return new \OC\AllConfig($systemConfig, $connection);
+		return new \OC\AllConfig($systemConfig, $this->eventDispatcher, $connection);
 	}
 
 	public function testDeleteUserValue() {
@@ -60,7 +67,44 @@ class AllConfigTest extends \Test\TestCase {
 		$selectAllSQL = 'SELECT `userid`, `appid`, `configkey`, `configvalue` FROM `*PREFIX*preferences` WHERE `userid` = ?';
 		$config = $this->getConfig();
 
+		$calledBeforeUserPrefSetVal = [];
+		$this->eventDispatcher->addListener('userpreferences.beforeSetvalue',
+			function (GenericEvent $event) use (&$calledBeforeUserPrefSetVal) {
+				$calledBeforeUserPrefSetVal[] = 'userpreferences.beforeSetvalue';
+				$calledBeforeUserPrefSetVal[] = $event;
+			});
+		$calledAfterUserPrefSetVal = [];
+		$this->eventDispatcher->addListener('userpreferences.afterSetvalue',
+			function (GenericEvent $event) use (&$calledAfterUserPrefSetVal) {
+				$calledAfterUserPrefSetVal[] = 'userpreferences.afterSetvalue';
+				$calledAfterUserPrefSetVal[] = $event;
+			});
 		$config->setUserValue('userSet', 'appSet', 'keySet', 'valueSet');
+
+		$this->assertInstanceOf(GenericEvent::class, $calledBeforeUserPrefSetVal[1]);
+		$this->assertInstanceOf(GenericEvent::class, $calledAfterUserPrefSetVal[1]);
+		$this->assertEquals('userpreferences.beforeSetvalue', $calledBeforeUserPrefSetVal[0]);
+		$this->assertEquals('userpreferences.afterSetvalue', $calledAfterUserPrefSetVal[0]);
+		$this->assertArrayHasKey('user', $calledBeforeUserPrefSetVal[1]);
+		$this->assertEquals('userSet', $calledBeforeUserPrefSetVal[1]->getArgument('user'));
+		$this->assertArrayHasKey('key', $calledBeforeUserPrefSetVal[1]);
+		$this->assertEquals('keySet', $calledBeforeUserPrefSetVal[1]->getArgument('key'));
+		$this->assertArrayHasKey('value', $calledBeforeUserPrefSetVal[1]);
+		$this->assertEquals('valueSet', $calledBeforeUserPrefSetVal[1]->getArgument('value'));
+		$this->assertArrayHasKey('app', $calledBeforeUserPrefSetVal[1]);
+		$this->assertEquals('appSet', $calledBeforeUserPrefSetVal[1]->getArgument('app'));
+		$this->assertArrayHasKey('precondition', $calledBeforeUserPrefSetVal[1]);
+		$this->assertNull($calledBeforeUserPrefSetVal[1]->getArgument('precondition'));
+		$this->assertArrayHasKey('user', $calledAfterUserPrefSetVal[1]);
+		$this->assertEquals('userSet', $calledAfterUserPrefSetVal[1]->getArgument('user'));
+		$this->assertArrayHasKey('key', $calledAfterUserPrefSetVal[1]);
+		$this->assertEquals('keySet', $calledAfterUserPrefSetVal[1]->getArgument('key'));
+		$this->assertArrayHasKey('value', $calledAfterUserPrefSetVal[1]);
+		$this->assertEquals('valueSet', $calledAfterUserPrefSetVal[1]->getArgument('value'));
+		$this->assertArrayHasKey('app', $calledAfterUserPrefSetVal[1]);
+		$this->assertEquals('appSet', $calledAfterUserPrefSetVal[1]->getArgument('app'));
+		$this->assertArrayHasKey('precondition', $calledAfterUserPrefSetVal[1]);
+		$this->assertNull($calledAfterUserPrefSetVal[1]->getArgument('precondition'));
 
 		$result = $this->connection->executeQuery($selectAllSQL, ['userSet'])->fetchAll();
 
@@ -85,8 +129,38 @@ class AllConfigTest extends \Test\TestCase {
 			'configvalue' => 'valueSet2'
 		], $result[0]);
 
+		$calledBeforeUserPrefDelVal = [];
+		$this->eventDispatcher->addListener('userpreferences.beforeDeletevalue',
+			function (GenericEvent $event) use (&$calledBeforeUserPrefDelVal) {
+				$calledBeforeUserPrefDelVal[] = 'userpreferences.beforeDeletevalue';
+				$calledBeforeUserPrefDelVal[] = $event;
+			});
+		$calledAfterUserPrefDelVal = [];
+		$this->eventDispatcher->addListener('userpreferences.afterDeletevalue',
+			function (GenericEvent $event) use (&$calledAfterUserPrefDelVal) {
+				$calledAfterUserPrefDelVal[] = 'userpreferences.afterDeletevalue';
+				$calledAfterUserPrefDelVal[] = $event;
+			});
+
 		// cleanup - it therefore relies on the successful execution of the previous test
 		$config->deleteUserValue('userSet', 'appSet', 'keySet');
+
+		$this->assertInstanceOf(GenericEvent::class, $calledBeforeUserPrefDelVal[1]);
+		$this->assertInstanceOf(GenericEvent::class, $calledAfterUserPrefDelVal[1]);
+		$this->assertEquals('userpreferences.beforeDeletevalue', $calledBeforeUserPrefDelVal[0]);
+		$this->assertEquals('userpreferences.afterDeletevalue', $calledAfterUserPrefDelVal[0]);
+		$this->assertArrayHasKey('user', $calledBeforeUserPrefDelVal[1]);
+		$this->assertEquals('userSet', $calledBeforeUserPrefDelVal[1]->getArgument('user'));
+		$this->assertArrayHasKey('key', $calledBeforeUserPrefDelVal[1]);
+		$this->assertEquals('keySet', $calledBeforeUserPrefDelVal[1]->getArgument('key'));
+		$this->assertArrayHasKey('app', $calledBeforeUserPrefDelVal[1]);
+		$this->assertEquals('appSet', $calledBeforeUserPrefDelVal[1]->getArgument('app'));
+		$this->assertArrayHasKey('user', $calledAfterUserPrefDelVal[1]);
+		$this->assertEquals('userSet', $calledAfterUserPrefDelVal[1]->getArgument('user'));
+		$this->assertArrayHasKey('key', $calledAfterUserPrefDelVal[1]);
+		$this->assertEquals('keySet', $calledAfterUserPrefDelVal[1]->getArgument('key'));
+		$this->assertArrayHasKey('app', $calledAfterUserPrefDelVal[1]);
+		$this->assertEquals('appSet', $calledAfterUserPrefDelVal[1]->getArgument('app'));
 	}
 
 	public function testSetUserValueWithPreCondition() {
@@ -343,7 +417,29 @@ class AllConfigTest extends \Test\TestCase {
 			);
 		}
 
+		$calledBeforeUserPrefDelAllUserVals = [];
+		$this->eventDispatcher->addListener('userpreferences.beforeDeleteuser',
+			function (GenericEvent $event) use (&$calledBeforeUserPrefDelAllUserVals) {
+				$calledBeforeUserPrefDelAllUserVals[] = 'userpreferences.beforeDeleteuser';
+				$calledBeforeUserPrefDelAllUserVals[] = $event;
+			});
+		$calledAfterUserPrefDelAllUserVals = [];
+		$this->eventDispatcher->addListener('userpreferences.afterDeleteuser',
+			function (GenericEvent $event) use (&$calledAfterUserPrefDelAllUserVals) {
+				$calledAfterUserPrefDelAllUserVals[] = 'userpreferences.afterDeleteuser';
+				$calledAfterUserPrefDelAllUserVals[] = $event;
+			});
+
 		$config->deleteAllUserValues('userFetch3');
+
+		$this->assertInstanceOf(GenericEvent::class, $calledBeforeUserPrefDelAllUserVals[1]);
+		$this->assertInstanceOf(GenericEvent::class, $calledAfterUserPrefDelAllUserVals[1]);
+		$this->assertEquals('userpreferences.beforeDeleteuser', $calledBeforeUserPrefDelAllUserVals[0]);
+		$this->assertEquals('userpreferences.afterDeleteuser', $calledAfterUserPrefDelAllUserVals[0]);
+		$this->assertArrayHasKey('user', $calledBeforeUserPrefDelAllUserVals[1]);
+		$this->assertEquals('userFetch3', $calledBeforeUserPrefDelAllUserVals[1]->getArgument('user'));
+		$this->assertArrayHasKey('user', $calledAfterUserPrefDelAllUserVals[1]);
+		$this->assertEquals('userFetch3', $calledAfterUserPrefDelAllUserVals[1]->getArgument('user'));
 
 		$result = $this->connection->executeQuery(
 			'SELECT COUNT(*) AS `count` FROM `*PREFIX*preferences`'
@@ -377,7 +473,30 @@ class AllConfigTest extends \Test\TestCase {
 			);
 		}
 
+		$calledBeforeUserPrefDelApp = [];
+		$this->eventDispatcher->addListener('userpreferences.beforeDeleteapp',
+			function (GenericEvent $event) use (&$calledBeforeUserPrefDelApp) {
+				$calledBeforeUserPrefDelApp[] = 'userpreferences.beforeDeleteapp';
+				$calledBeforeUserPrefDelApp[] = $event;
+			});
+		$calledAfterUserPrefDelApp = [];
+		$this->eventDispatcher->addListener('userpreferences.afterDeleteapp',
+			function (GenericEvent $event) use (&$calledAfterUserPrefDelApp) {
+				$calledAfterUserPrefDelApp[] = 'userpreferences.afterDeleteapp';
+				$calledAfterUserPrefDelApp[] = $event;
+			});
+
+
 		$config->deleteAppFromAllUsers('appFetch1');
+
+		$this->assertInstanceOf(GenericEvent::class, $calledBeforeUserPrefDelApp[1]);
+		$this->assertInstanceOf(GenericEvent::class, $calledAfterUserPrefDelApp[1]);
+		$this->assertEquals('userpreferences.afterDeleteapp', $calledAfterUserPrefDelApp[0]);
+		$this->assertEquals('userpreferences.beforeDeleteapp', $calledBeforeUserPrefDelApp[0]);
+		$this->assertArrayHasKey('app', $calledBeforeUserPrefDelApp[1]);
+		$this->assertEquals('appFetch1', $calledBeforeUserPrefDelApp[1]->getArgument('app'));
+		$this->assertArrayHasKey('app', $calledAfterUserPrefDelApp[1]);
+		$this->assertEquals('appFetch1', $calledAfterUserPrefDelApp[1]->getArgument('app'));
 
 		$result = $this->connection->executeQuery(
 			'SELECT COUNT(*) AS `count` FROM `*PREFIX*preferences`'
