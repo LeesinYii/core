@@ -254,7 +254,7 @@ class SessionTest extends TestCase {
 		});
 		$userSession->login('foo', 'bar');
 		$this->assertInstanceOf(GenericEvent::class, $calledUserLogin[1]);
-		$this->assertArrayHasKey('uid', $calledUserLogin[1]);
+		$this->assertArrayHasKey('user', $calledUserLogin[1]);
 		$this->assertEquals('user.afterlogin', $calledUserLogin[0]);
 		$this->assertEquals($user, $userSession->getUser());
 	}
@@ -1200,5 +1200,60 @@ class SessionTest extends TestCase {
 		}
 
 		$this->assertEquals($expectedReturn, $session->tryAuthModuleLogin($request));
+	}
+
+	public function testLoginWithPassword() {
+		$iUser = $this->createMock(IUser::class);
+		$iUser->expects($this->any())
+			->method('getUID')
+			->willReturn('foo');
+
+		$iUser->expects($this->any())
+			->method('isEnabled')
+			->willReturn(true);
+
+		$manager = $this->createMock(Manager::class);
+		$manager->expects($this->once())
+			->method('checkPassword')
+			->willReturn($iUser);
+
+		$session = $this->createMock(ISession::class);
+		$userSession = new Session($manager, $session, $this->timeFactory,
+			$this->tokenProvider, $this->config, $this->logger, $this->serviceLoader, $this->userSyncService);
+
+		$calledBeforeEvent = [];
+		\OC::$server->getEventDispatcher()->addListener('user.beforelogin',
+			function (GenericEvent $event) use (&$calledBeforeEvent) {
+				$calledBeforeEvent[] = 'user.beforelogin';
+				$calledBeforeEvent[] = $event;
+			});
+		$calledAfterEvent = [];
+		\OC::$server->getEventDispatcher()->addListener('user.afterlogin',
+			function (GenericEvent $event) use (&$calledAfterEvent) {
+				$calledAfterEvent[] = 'user.afterlogin';
+				$calledAfterEvent[] = $event;
+			});
+
+		$this->invokePrivate($userSession, 'loginWithPassword', ['user1', 'user1password']);
+
+		$this->assertEquals('user.beforelogin', $calledBeforeEvent[0]);
+		$this->assertInstanceOf(GenericEvent::class, $calledBeforeEvent[1]);
+		$this->assertArrayHasKey('login', $calledBeforeEvent[1]);
+		$this->assertEquals('user1', $calledBeforeEvent[1]->getArgument('login'));
+		$this->assertArrayHasKey('uid', $calledBeforeEvent[1]);
+		$this->assertEquals('user1', $calledBeforeEvent[1]->getArgument('uid'));
+		$this->assertArrayHasKey('password', $calledBeforeEvent[1]);
+		$this->assertEquals('user1password', $calledBeforeEvent[1]->getArgument('password'));
+
+		$this->assertEquals('user.afterlogin', $calledAfterEvent[0]);
+		$this->assertInstanceOf(GenericEvent::class, $calledAfterEvent[1]);
+		$this->assertArrayHasKey('user', $calledAfterEvent[1]);
+		$this->assertInstanceOf(IUser::class, $calledAfterEvent[1]->getArgument('user'));
+		$this->assertEquals('foo', $calledAfterEvent[1]->getArgument('user')->getUID());
+		$this->assertArrayHasKey('uid', $calledAfterEvent[1]);
+		$this->assertInstanceOf(IUser::class, $calledAfterEvent[1]->getArgument('uid'));
+		$this->assertEquals('foo', $calledAfterEvent[1]->getArgument('uid')->getUID());
+		$this->assertArrayHasKey('password', $calledAfterEvent[1]);
+		$this->assertEquals('user1password', $calledAfterEvent[1]->getArgument('password'));
 	}
 }

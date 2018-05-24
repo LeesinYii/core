@@ -481,27 +481,34 @@ class Session implements IUserSession, Emitter {
 	/**
 	 * Log an user in via login name and password
 	 *
-	 * @param string $uid
+	 * @param string $login
 	 * @param string $password
 	 * @return boolean
 	 * @throws LoginException if an app canceld the login process or the user is not enabled
+	 *
+	 * Two new keys 'login' in the before event and 'user' in the after event
+	 * are introduced. We should use this keys in future when trying to listen
+	 * the events emitted from this method. We have kept the key 'uid' for
+	 * compatibility.
 	 */
-	private function loginWithPassword($uid, $password) {
-		return $this->emittingCall(function () use (&$uid, &$password) {
-			$this->manager->emit('\OC\User', 'preLogin', [$uid, $password]);
-			$user = $this->manager->checkPassword($uid, $password);
+	private function loginWithPassword($login, $password) {
+		return $this->emittingCall(function (&$afterArray) use ($login, $password) {
+			$this->manager->emit('\OC\User', 'preLogin', [$login, $password]);
+			$user = $this->manager->checkPassword($login, $password);
 			if ($user === false) {
-				$this->manager->emit('\OC\User', 'failedLogin', [$uid]);
+				$this->manager->emit('\OC\User', 'failedLogin', [$login]);
 				return false;
 			}
 
 			if ($user->isEnabled()) {
 				$this->setUser($user);
-				$this->setLoginName($uid);
+				$this->setLoginName($login);
 				$firstTimeLogin = $user->updateLastLoginTimestamp();
 				$this->manager->emit('\OC\User', 'postLogin', [$user, $password]);
 				if ($this->isLoggedIn()) {
 					$this->prepareUserLogin($firstTimeLogin);
+					$afterArray['user'] = $user;
+					$afterArray['uid'] = $user;
 					return true;
 				} else {
 					// injecting l10n does not work - there is a circular dependency between session and \OCP\L10N\IFactory
@@ -513,7 +520,7 @@ class Session implements IUserSession, Emitter {
 				$message = \OC::$server->getL10N('lib')->t('User disabled');
 				throw new LoginException($message);
 			}
-		}, ['before' => ['uid' => $uid, 'password' => $password], 'after' => ['uid' => $uid, 'password' => $password]], 'user', 'login');
+		}, ['before' => ['login' => $login, 'uid' => $login, 'password' => $password], 'after' => ['user' => $login, 'uid' => $login, 'password' => $password]], 'user', 'login');
 	}
 
 	/**
