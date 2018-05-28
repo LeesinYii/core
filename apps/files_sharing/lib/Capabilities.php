@@ -103,6 +103,20 @@ class Capabilities implements ICapability {
 			$res['share_with_group_members_only'] = $this->config->getAppValue('core', 'shareapi_only_share_with_group_members', 'yes') === 'yes';
 			$res['share_with_membership_groups_only'] = $this->config->getAppValue('core', 'shareapi_only_share_with_membership_groups', 'yes') === 'yes';
 
+			$res['exclude_groups_from_sharing'] = $this->config->getAppValue('core', 'shareapi_exclude_groups', 'yes') === 'yes';
+
+			if ($res['exclude_groups_from_sharing']) {
+				$excludedGroups = json_decode($this->config->getAppValue('core', 'shareapi_exclude_groups_list', []), true);
+				foreach ($excludedGroups as $key => $g) {
+					$res['zzz'][$g] = true;
+					$xxx = $g . "qww";
+					$res['groups_excluded_from_sharing']["a$key"] = $xxx;
+				}
+				$xxx = "qw";
+				$res['groups_excluded_from_sharing']['zz'] = $xxx;
+				$res['qqq'] = strlen($excludedGroups[0]);
+			}
+
 			$user_enumeration = [];
 			$user_enumeration['enabled'] = $this->config->getAppValue('core', 'shareapi_allow_share_dialog_user_enumeration', 'yes') === 'yes';
 			if ($user_enumeration['enabled']) {
