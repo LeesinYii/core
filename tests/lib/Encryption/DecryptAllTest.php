@@ -34,11 +34,13 @@ use OCA\Files_Sharing\SharedStorage;
 use OCP\DB\QueryBuilder\IExpressionBuilder;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Encryption\IEncryptionModule;
+use OCP\Files\Storage;
 use OCP\IConfig;
 use OCP\IDBConnection;
 use OCP\ILogger;
 use OCP\IUser;
 use OCP\IUserManager;
+use OCP\Share\IShare;
 use OCP\UserInterface;
 use OCP\Util\UserSearch;
 use Symfony\Component\Console\Formatter\OutputFormatterInterface;
@@ -79,6 +81,8 @@ class DecryptAllTest extends TestCase {
 	/** @var  \PHPUnit_Framework_MockObject_MockObject | \OCP\UserInterface */
 	protected $userInterface;
 
+	protected $shareManager;
+
 	/** @var  DecryptAll */
 	protected $instance;
 
@@ -99,11 +103,12 @@ class DecryptAllTest extends TestCase {
 			->disableOriginalConstructor()->getMock();
 		$this->userInterface = $this->getMockBuilder(UserInterface::class)
 			->disableOriginalConstructor()->getMock();
+		$this->shareManager = $this->createMock(\OC\Share20\Manager::class);
 
 		$this->outputInterface->expects($this->any())->method('getFormatter')
 			->willReturn($this->createMock(OutputFormatterInterface::class));
 
-		$this->instance = new DecryptAll($this->encryptionManager, $this->userManager, $this->view, $this->logger);
+		$this->instance = new DecryptAll($this->encryptionManager, $this->userManager, $this->view, $this->logger, $this->shareManager);
 
 		$this->invokePrivate($this->instance, 'input', [$this->inputInterface]);
 		$this->invokePrivate($this->instance, 'output', [$this->outputInterface]);
@@ -138,7 +143,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['prepareEncryptionModules', 'decryptAllUsersFiles'])
@@ -226,7 +232,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['decryptUsersFiles'])
@@ -259,7 +266,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['decryptUsersFiles'])
@@ -318,18 +326,7 @@ class DecryptAllTest extends TestCase {
 			'home' => '',
 			'state' => 1
 		];
-		$user2 = [
-			'id' => 1,
-			'email' => null,
-			'user_id' => 'user1',
-			'lower_user_id' => 'user1',
-			'display_name' => 'user1',
-			'quota' => null,
-			'last_login' => '1527174420',
-			'backend' => 'OC\User\Database',
-			'home' => '',
-			'state' => 1
-		];
+
 		$iConfig = $this->createMock(IConfig::class);
 		$idbConnection = $this->createMock(IDBConnection::class);
 		$iqueryBuilder = $this->createMock(IQueryBuilder::class);
@@ -337,7 +334,7 @@ class DecryptAllTest extends TestCase {
 		$resultStatment = $this->createMock(Statement::class);
 		$resultStatment->expects($this->at(0))
 			->method('fetch')
-			->willReturn(['count' => '2']);
+			->willReturn(['count' => '1']);
 		$resultStatment->expects($this->at(1))
 			->method('fetch')
 			->willReturn($user1);
@@ -391,7 +388,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['decryptUsersFiles', 'prepareEncryptionModules'])
@@ -446,7 +444,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['decryptFile'])
@@ -501,6 +500,76 @@ class DecryptAllTest extends TestCase {
 		$this->invokePrivate($instance, 'decryptUsersFiles', ['user1', $progressBar, '']);
 	}
 
+	public function testDecryptUsersFilesShare() {
+		$storage = $this->createMock(Storage::class);
+		$storage->expects($this->any())
+			->method('instanceOfStorage')
+			->with('\OCA\Files_Sharing\ISharedStorage')
+			->willReturn(false);
+		$this->view->expects($this->at(0))->method('getDirectoryContent')
+			->with('/user1/files')->willReturn(
+				[
+					new FileInfo('path', $storage, 'intPath', ['name' => 'bar.txt', 'type'=>'file', 'encrypted'=>true], null)
+				]
+			);
+
+		$fileInfo = $this->createMock(FileInfo::class);
+		$fileInfo->expects($this->any())
+			->method('getId')
+			->willReturn(56);
+
+		$this->view->expects($this->any())
+			->method('getFileInfo')
+			->willReturn($fileInfo);
+
+		$share = [
+			'id' => '1',
+			'fileId' => 44,
+			'nodeType' => 'file',
+			'shareType' => \OCP\Share::SHARE_TYPE_GROUP,
+			'sharedBy' => 'user1',
+			'shareOwner' => 'user1',
+			'target' => '/bar.txt',
+			'permissions' => 19
+		];
+		$iShare = $this->createMock(IShare::class);
+		$iShare->expects($this->any())
+			->method('getTarget')
+			->willReturn('/bar.txt');
+		$iShare->expects($this->any())
+			->method('setNodeId')
+			->willReturn($iShare);
+
+		$this->shareManager->expects($this->any())
+			->method('getSharesBy')
+			->willReturnOnConsecutiveCalls([$iShare], []);
+		$this->shareManager->expects($this->any())
+			->method('updateShare')
+			->willReturn($iShare);
+
+		/** @var DecryptAll | \PHPUnit_Framework_MockObject_MockObject  $instance */
+		$instance = $this->getMockBuilder(DecryptAll::class)
+			->setConstructorArgs(
+				[
+					$this->encryptionManager,
+					$this->userManager,
+					$this->view,
+					$this->logger,
+					$this->shareManager
+				]
+			)
+			->setMethods(['decryptFile'])
+			->getMock();
+
+		$instance->expects($this->any())
+			->method('decryptFile')
+			->willReturn(true);
+
+		$progressBar = new ProgressBar(new NullOutput());
+		$result = $this->invokePrivate($instance, 'decryptUsersFiles', ['user1', $progressBar, '']);
+		$this->assertNull($result);
+	}
+
 	public function testDecryptFile() {
 		$path = 'test.txt';
 
@@ -511,7 +580,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['getTimestamp'])
@@ -541,7 +611,8 @@ class DecryptAllTest extends TestCase {
 					$this->encryptionManager,
 					$this->userManager,
 					$this->view,
-					$this->logger
+					$this->logger,
+					$this->shareManager
 				]
 			)
 			->setMethods(['getTimestamp'])

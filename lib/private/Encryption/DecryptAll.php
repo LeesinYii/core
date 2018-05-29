@@ -58,23 +58,31 @@ class DecryptAll {
 	/** @var ILogger */
 	protected $logger;
 
+	/** @var \OC\Share20\Manager  */
+	protected $shareManager;
+
 	/**
+	 * DecryptAll constructor.
+	 *
 	 * @param Manager $encryptionManager
 	 * @param IUserManager $userManager
 	 * @param View $rootView
 	 * @param ILogger $logger
+	 * @param \OC\Share20\Manager $shareManager
 	 */
 	public function __construct(
 		Manager $encryptionManager,
 		IUserManager $userManager,
 		View $rootView,
-		ILogger $logger
+		ILogger $logger,
+		\OC\Share20\Manager $shareManager
 	) {
 		$this->encryptionManager = $encryptionManager;
 		$this->userManager = $userManager;
 		$this->rootView = $rootView;
 		$this->failed = [];
 		$this->logger = $logger;
+		$this->shareManager = $shareManager;
 	}
 
 	/**
@@ -224,6 +232,25 @@ class DecryptAll {
 							if ($this->decryptFile($path) === false) {
 								$progress->setMessage("decrypt files for user $userCount: $path (already decrypted)");
 								$progress->advance();
+							} else {
+								foreach ([\OCP\Share::SHARE_TYPE_GROUP, \OCP\Share::SHARE_TYPE_USER, \OCP\Share::SHARE_TYPE_LINK, \OCP\Share::SHARE_TYPE_REMOTE] as $shareType) {
+									$offset = 0;
+									while (true) {
+										$sharePage = $this->shareManager->getSharesBy($uid, $shareType, null, true, 50, $offset);
+										if (empty($sharePage)) {
+											break;
+										}
+										foreach ($sharePage as $share) {
+											$name = \ltrim($share->getTarget(), '/');
+											if ($name === $file['name']) {
+												$fileInfo = $this->rootView->getFileInfo($path);
+												$share->setNodeId($fileInfo->getId());
+												$this->shareManager->updateShare($share);
+											}
+										}
+										$offset += 50;
+									}
+								}
 							}
 						}
 					} catch (\Exception $e) {
